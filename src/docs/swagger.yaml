@@ -1,0 +1,825 @@
+openapi: 3.0.3
+info:
+  title: Playce API
+  description: >
+    **Playce** is a web-based booking and venue management REST API designed specifically
+    for event venues within the University of Ibadan campus (such as the SUB pitch).
+    It eliminates event clashing through an automated Core Time Clash Prevention Algorithm
+    and provides a role-based approval pipeline for event planners, venue managers, and administrators.
+  version: 1.0.0
+  contact:
+    name: Playce Engineering Team
+    email: support@playce.ui.edu.ng
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Local Development Server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Enter your access token or reset token.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: accessToken
+      description: JWT access token automatically handled via HttpOnly cookie.
+
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operation completed successfully.
+        data:
+          type: object
+
+    ApiError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: An error occurred
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          example: john_doe
+        email:
+          type: string
+          format: email
+          example: planner@ui.edu.ng
+        role:
+          type: string
+          enum: [event-planner, manager, admin]
+          example: event-planner
+        acctStatus:
+          type: string
+          enum: [pending, approved]
+          example: approved
+        createdAt:
+          type: string
+          format: date-time
+
+    Venue:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        manager_id:
+          type: string
+          format: uuid
+        venue_name:
+          type: string
+          example: SUB Football Pitch
+        venue_description:
+          type: string
+          example: Main pitch located near the Student Union Building. Capacity 2,000 people.
+        time_open:
+          type: string
+          example: "08:00:00"
+        time_closed:
+          type: string
+          example: "21:00:00"
+        days_closed:
+          type: array
+          items:
+            type: string
+          example: ["Sunday"]
+        createdAt:
+          type: string
+          format: date-time
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        planner_id:
+          type: string
+          format: uuid
+        venue_id:
+          type: string
+          format: uuid
+        event_name:
+          type: string
+          example: Inter-Faculty Cup Semi-Final
+        event_description:
+          type: string
+          example: Football match between Faculty of Technology and Faculty of Science.
+        event_date:
+          type: string
+          format: date
+          example: "2026-10-15"
+        start_time:
+          type: string
+          example: "14:00:00"
+        end_time:
+          type: string
+          example: "17:00:00"
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+          example: pending
+        remark:
+          type: string
+          nullable: true
+          example: Approved with security presence required.
+        planner_note:
+          type: string
+          nullable: true
+          example: We have attached an official letter from the Dean of Student Affairs for pitch reservation.
+        document_url:
+          type: string
+          format: uri
+          nullable: true
+          example: https://res.cloudinary.com/playce-demo/image/upload/v1726950000/playce/official_letters/official_letter.pdf
+        manager_id:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+paths:
+  # =========================================================================
+  # AUTHENTICATION & USERS
+  # =========================================================================
+  /users/signup:
+    post:
+      summary: Register a new account
+      description: Registers a user with pending account status and sends an OTP to their email via Resend.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - email
+                - password
+              properties:
+                username:
+                  type: string
+                  example: j_planner
+                email:
+                  type: string
+                  format: email
+                  example: planner@ui.edu.ng
+                password:
+                  type: string
+                  format: password
+                  minLength: 6
+                  example: securePassword123
+                role:
+                  type: string
+                  enum: [event-planner, manager, admin]
+                  default: event-planner
+      responses:
+        201:
+          description: User registered successfully. OTP dispatched to email.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        400:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        409:
+          description: Email already registered
+
+  /users/verify-otp:
+    post:
+      summary: Verify account registration OTP
+      description: Verifies the 6-digit OTP code against Redis, immediately consumes the OTP, and updates account status to 'approved'.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - otp
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: planner@ui.edu.ng
+                otp:
+                  type: string
+                  example: "482910"
+      responses:
+        200:
+          description: Email verified successfully. Account activated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        400:
+          description: Invalid or expired OTP
+
+  /users/login:
+    post:
+      summary: Log into account
+      description: Authenticates user credentials, sets HttpOnly cookies for Access Token (30 min) and Refresh Token (4 hours), and persists refresh token in DB.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: planner@ui.edu.ng
+                password:
+                  type: string
+                  format: password
+                  example: securePassword123
+      responses:
+        200:
+          description: Login successful. Tokens set in HttpOnly cookies and returned in body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        401:
+          description: Invalid credentials
+        403:
+          description: Account pending email verification
+
+  /users/forgot-password:
+    post:
+      summary: Forgot password - Step 1: Request OTP
+      description: Generates a 6-digit OTP, stores its hash in Redis, and dispatches it to the user's email.
+      tags:
+        - Password Recovery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: planner@ui.edu.ng
+      responses:
+        200:
+          description: Password reset OTP sent if account exists.
+
+  /users/verify-reset-otp:
+    post:
+      summary: Forgot password - Step 2: Verify reset OTP
+      description: Verifies the OTP, deletes the Redis entry, and issues a 15-minute password reset JWT in an HttpOnly cookie.
+      tags:
+        - Password Recovery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - otp
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: planner@ui.edu.ng
+                otp:
+                  type: string
+                  example: "591024"
+      responses:
+        200:
+          description: OTP verified. Reset token issued.
+
+  /users/reset-password:
+    post:
+      summary: Forgot password - Step 3: Set new password
+      description: Authenticated by the reset token cookie. Hashes and updates user password and revokes existing refresh tokens.
+      tags:
+        - Password Recovery
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - password
+                - confirmPassword
+              properties:
+                password:
+                  type: string
+                  minLength: 6
+                  example: newSecurePass123
+                confirmPassword:
+                  type: string
+                  minLength: 6
+                  example: newSecurePass123
+      responses:
+        200:
+          description: Password updated successfully.
+        401:
+          description: Reset token expired or invalid.
+
+  /users/refresh-token:
+    post:
+      summary: Refresh access token
+      description: Exchanges an active Refresh Token from cookie or body for a new 30-minute Access Token.
+      tags:
+        - Authentication
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        200:
+          description: New access token issued.
+        401:
+          description: Invalid or expired refresh token.
+
+  /users/logout:
+    post:
+      summary: Log out user
+      description: Marks the refresh token as expired in DB and clears client cookies.
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        200:
+          description: Logged out successfully.
+
+  /users/me:
+    get:
+      summary: Get current authenticated user profile
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        200:
+          description: User profile retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        401:
+          description: Unauthorized.
+
+  # =========================================================================
+  # VENUE MANAGEMENT
+  # =========================================================================
+  /venues:
+    get:
+      summary: List all venues
+      description: Publicly lists all venues registered in the system along with manager metadata.
+      tags:
+        - Venues
+      responses:
+        200:
+          description: List of venues.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+    post:
+      summary: Create a new venue (Manager / Admin only)
+      description: Registers a new campus venue with operating hours and closed days.
+      tags:
+        - Venues
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - venue_name
+                - venue_description
+                - time_open
+                - time_closed
+              properties:
+                venue_name:
+                  type: string
+                  example: SUB Pitch
+                venue_description:
+                  type: string
+                  example: Outdoor football pitch with standard grass and stadium lighting. Capacity 3,000.
+                time_open:
+                  type: string
+                  example: "07:00"
+                time_closed:
+                  type: string
+                  example: "22:00"
+                days_closed:
+                  type: array
+                  items:
+                    type: string
+                  example: ["Sunday"]
+      responses:
+        201:
+          description: Venue created successfully.
+        400:
+          description: Validation error or invalid operating hours.
+        403:
+          description: Unauthorized (requires manager or admin role).
+
+  /venues/{id}:
+    get:
+      summary: Get venue by ID
+      tags:
+        - Venues
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Venue details retrieved.
+        404:
+          description: Venue not found.
+
+    put:
+      summary: Update venue details (Manager owner / Admin only)
+      tags:
+        - Venues
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                venue_name:
+                  type: string
+                venue_description:
+                  type: string
+                time_open:
+                  type: string
+                time_closed:
+                  type: string
+                days_closed:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        200:
+          description: Venue updated successfully.
+        403:
+          description: Access denied (must be managing owner or admin).
+        404:
+          description: Venue not found.
+
+    delete:
+      summary: Delete venue (Manager owner / Admin only)
+      description: Deletes venue and cascades removal of all associated bookings.
+      tags:
+        - Venues
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Venue deleted successfully.
+        403:
+          description: Access denied.
+        404:
+          description: Venue not found.
+
+  # =========================================================================
+  # BOOKING MANAGEMENT & TIME CLASH PREVENTION
+  # =========================================================================
+  /bookings/schedule-check:
+    get:
+      summary: Check venue availability & booked intervals for a date
+      description: Returns operating hours, closed day status, and all existing booked intervals (pending & approved) on that date.
+      tags:
+        - Bookings
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: venue_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: event_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-10-15"
+      responses:
+        200:
+          description: Venue availability and booked intervals returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        400:
+          description: Invalid query parameters.
+        404:
+          description: Venue not found.
+
+  /bookings:
+    get:
+      summary: List bookings
+      description: Planners view their own bookings; Managers view bookings for their managed venues; Admins view all.
+      tags:
+        - Bookings
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: event_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+        - name: venue_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Bookings retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+    post:
+      summary: Request a venue booking (Event Planner only)
+      description: >
+        Validates event details using the **Core Time Clash Prevention Algorithm**:
+        1. Checks venue operating days and hours.
+        2. Queries existing pending or approved bookings for overlapping time intervals.
+        3. Prevents clash and records booking with status 'pending'.
+        4. Notifies venue manager via email.
+      tags:
+        - Bookings
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - venue_id
+                - event_name
+                - event_description
+                - event_date
+                - start_time
+                - end_time
+              properties:
+                venue_id:
+                  type: string
+                  format: uuid
+                  example: 123e4567-e89b-12d3-a456-426614174000
+                event_name:
+                  type: string
+                  example: UI Tech Summit 2026
+                event_description:
+                  type: string
+                  example: Annual developer gathering and exhibition.
+                event_date:
+                  type: string
+                  format: date
+                  example: "2026-10-15"
+                start_time:
+                  type: string
+                  example: "10:00"
+                end_time:
+                  type: string
+                  example: "14:00"
+                planner_note:
+                  type: string
+                  example: Please find attached the official letter from the Student Union Executive Council.
+                document:
+                  type: string
+                  format: binary
+                  description: Official signed letter or document (PDF, PNG, JPEG, DOC, DOCX up to 10MB) to be uploaded to Cloudinary.
+          application/json:
+            schema:
+              type: object
+              required:
+                - venue_id
+                - event_name
+                - event_description
+                - event_date
+                - start_time
+                - end_time
+              properties:
+                venue_id:
+                  type: string
+                  format: uuid
+                  example: 123e4567-e89b-12d3-a456-426614174000
+                event_name:
+                  type: string
+                  example: UI Tech Summit 2026
+                event_description:
+                  type: string
+                  example: Annual developer gathering and exhibition.
+                event_date:
+                  type: string
+                  format: date
+                  example: "2026-10-15"
+                start_time:
+                  type: string
+                  example: "10:00"
+                end_time:
+                  type: string
+                  example: "14:00"
+                planner_note:
+                  type: string
+                  example: Official letter will be presented upon verbal review.
+      responses:
+        201:
+          description: Booking submitted successfully and is pending manager approval.
+        400:
+          description: Validation error or time falls outside venue operating hours/days.
+        409:
+          description: Time clash detected with an existing pending or approved booking.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /bookings/{id}:
+    get:
+      summary: Get booking details by ID
+      tags:
+        - Bookings
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Booking details retrieved.
+        403:
+          description: Access denied.
+        404:
+          description: Booking not found.
+
+    delete:
+      summary: Delete / Cancel a booking (Event Planner owner / Admin only)
+      tags:
+        - Bookings
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Booking deleted successfully.
+        403:
+          description: Access denied.
+        404:
+          description: Booking not found.
+
+  /bookings/{id}/status:
+    patch:
+      summary: Approve or reject a booking (Venue Manager / Admin only)
+      description: Updates booking status to 'approved' or 'rejected' with optional remark and emails the event planner.
+      tags:
+        - Bookings
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [approved, rejected]
+                  example: approved
+                remark:
+                  type: string
+                  example: Approved. Please ensure sound systems are cleared by 10 PM.
+      responses:
+        200:
+          description: Booking status updated. Email sent to planner.
+        403:
+          description: Access denied (must be managing owner of the venue or admin).
+        404:
+          description: Booking not found.

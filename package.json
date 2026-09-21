@@ -1,0 +1,48 @@
+{
+  "name": "playce-api",
+  "version": "1.0.0",
+  "description": "A web-based booking system for event venues within University of Ibadan campus",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.6.0",
+    "bcryptjs": "^2.4.3",
+    "body-parser": "^1.19.0",
+    "cloudinary": "^2.11.0",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.6",
+    "dotenv": "^8.2.0",
+    "express": "^4.17.1",
+    "express-basic-auth": "^1.2.1",
+    "express-rate-limit": "^7.0.0",
+    "express-validator": "^7.3.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.4.0",
+    "node-cron": "^4.6.0",
+    "pg": "^8.11.3",
+    "pg-hstore": "^2.3.4",
+    "redis": "^4.6.7",
+    "resend": "^6.12.3",
+    "sequelize": "^6.37.8",
+    "swagger-ui-express": "^5.0.1",
+    "unzipper": "^0.12.3",
+    "yamljs": "^0.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "overrides": {
+    "glob": "^13.0.0",
+    "inflight": "npm:lru-cache@^7.0.0",
+    "lodash": "^4.17.21",
+    "validator": "^13.12.0",
+    "dottie": "^2.0.7",
+    "uuid": "^11"
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "type": "module"
+}
