@@ -6,8 +6,8 @@ let sequelize;
 if (ENV.DB.URL) {
   sequelize = new Sequelize(ENV.DB.URL, {
     dialect: 'postgres',
-    logging: ENV.NODE_ENV === 'development' ? false : false,
-    dialectOptions: ENV.NODE_ENV === 'production' ? {
+    logging: true,
+    dialectOptions: {
       ssl: {
         require: true,
         rejectUnauthorized: false
@@ -32,10 +32,7 @@ export const connectDB = async () => {
   try {
     await sequelize.authenticate();
     console.log('PostgreSQL database connection established successfully.');
-    // In dev, sync alters tables if needed
-    if (ENV.NODE_ENV === 'development' || 'production') {
-      await sequelize.sync({ alter: false });
-    }
+    await sequelize.sync();
   } catch (error) {
     console.error('Unable to connect to the database:', error.message);
   }
