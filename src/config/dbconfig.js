@@ -33,7 +33,7 @@ export const connectDB = async () => {
     await sequelize.authenticate();
     console.log('PostgreSQL database connection established successfully.');
     // In dev, sync alters tables if needed
-    if (ENV.NODE_ENV === 'development') {
+    if (ENV.NODE_ENV === 'development' || 'production') {
       await sequelize.sync({ alter: false });
     }
   } catch (error) {
