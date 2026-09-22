@@ -19,7 +19,6 @@ if (ENV.DB.URL) {
     host: ENV.DB.HOST,
     port: ENV.DB.PORT,
     dialect: 'postgres',
-    logging: false,
     dialectOptions: ENV.NODE_ENV === 'production' ? {
       ssl: {
         require: true,
