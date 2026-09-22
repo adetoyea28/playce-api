@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from 'cloudinary';
 import { Readable } from 'stream';
+import path from 'path'; // Added to safely parse file extensions
 import { ENV } from './env.js';
 
 let isCloudinaryConfigured = false;
@@ -30,23 +31,30 @@ export const uploadToCloudinary = (fileBuffer, originalname, folder = 'playce/of
       return reject(new Error('No file buffer provided for upload.'));
     }
 
+    // Clean and sanitize the original name for both fallback and primary use
+    const safeOriginalName = originalname || 'document';
+    const cleanName = safeOriginalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+
     if (!isCloudinaryConfigured) {
       // In development / test without active credentials, simulate uploaded document URL
-      const cleanName = (originalname || 'document').replace(/[^a-zA-Z0-9._-]/g, '_');
-      const simulatedUrl = `https://res.cloudinary.com/playce-demo/image/upload/v${Date.now()}/${folder}/${cleanName}`;
-      console.log(`[Cloudinary Dev Mode] Simulated upload for "${originalname}": ${simulatedUrl}`);
+      const simulatedUrl = `https://cloudinary.com{Date.now()}/${folder}/${cleanName}`;
+      console.log(`[Cloudinary Dev Mode] Simulated upload for "${safeOriginalName}": ${simulatedUrl}`);
       return resolve({
         secure_url: simulatedUrl,
         public_id: `${folder}/${cleanName}`,
       });
     }
 
+    // Extract the base filename without its extension to pass as the public_id
+    const fileBaseName = path.parse(cleanName).name;
+
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder,
         resource_type: 'auto',
-        use_filename: true,
-        unique_filename: true,
+        public_id: fileBaseName, // Sets the identifier using your original filename
+        use_filename: true,      // Tells Cloudinary to prioritize the original filename structure
+        unique_filename: true,   // Appends a random suffix to prevent files from overwriting each other
       },
       (error, result) => {
         if (error) {
